@@ -1,0 +1,107 @@
+create a new repository on the command line
+echo "# quadsim" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin git@github.com:zhengnx0906/quadsim.git
+git push -u origin main
+------------------------------------------------------------
+push an existing repository from the command line
+git remote add origin git@github.com:zhengnx0906/quadsim.git
+git branch -M main
+git push -u origin main
+-------------------------------------------------
+roslaunch unitree_gazebo normal.launch
+rosrun demo demo_publish_odom
+roslaunch mbot texx.launch
+
+里程计的发布在demo_publish_odom 里面
+qrRobotPoseEstimator::Update 更新机器人位置
+控制和trot keyboard一致 wasd控制速度 jl控制转向速度
+join()是等待子线程执行完成之后，主线程才继续执行，此时主线程会释放掉执行完成后的子线程的资源。
+与publishers/subscribers的通信机制相比，services/clients通信机制是一种双向、一对一的可靠通信机制。 
+同时要注意一点，service的响应要尽可能的快，因为client在没有得到反馈之前是处于停止状态的，直到它收到反馈信息才开始重新运作。
+
+对于一些只订阅一个话题的简单节点来说，我们使用ros::spin()进入接收循环，每当有订阅的话题发布时，进入回调函数接收和处理消息数据。
+但是更多的时候，一个节点往往要接收和处理不同来源的数据，并且这些数据的产生频率也各不相同，当我们在一个回调函数里耗费太多时间时，会导致其他回调函数被阻塞，导致数据丢失。
+这种场合需要给一个节点开辟多个线程，保证数据流的畅通。 
+ros::AsyncSpinner 
+
+state-estimater和qr-robot-state里面的状态估计关系--前者是更上层的关系，odom state只是state-estimater 一个分支，机器人完整状态在state-estimater 里面
+
+odom里面的rpy在sim环境下由qrRobotSim::ImuCallback 更新
+
+qrLocomotionController 里面包含各个估计器
+
+liw_oam可以参考，类似的写一个liosam的观测factor，把速度观测融入其中
+以IMU为基准，取速度观测中的最邻近两帧之间的插值（匀加速，记录时间）
+
+------------------------------------------------
+注意对比的误差纵轴坐标
+
+/leggedodom /pose_ground_truth /aft_mapped_to_init /robot/dlo/odom_node/odom /aft_pgo_odom
+
+
+aloam ros::rate ()有点奇怪 取消之后很多东西都好了
+
+---------------------------------------------------------------
+dlo 那个，是根据gicp_s2s.align 转化相关的点云
+
+
+------------------------------------------------------------------
+    Eigen::Affine3f odom2affine(nav_msgs::Odometry odom)
+    {
+        double x, y, z, roll, pitch, yaw;
+        x = odom.pose.pose.position.x;
+        y = odom.pose.pose.position.y;
+        z = odom.pose.pose.position.z;
+        tf::Quaternion orientation;
+        tf::quaternionMsgToTF(odom.pose.pose.orientation, orientation);
+        tf::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
+        return pcl::getTransformation(x, y, z, roll, pitch, yaw);
+    }
+获取相关变化矩阵的方法
+-----------------------------------------------------------------------
+时间同步好像没有什么比较好的方法，设置一个bool算了
+2>/dev/null 在命令之后加上上面这句话取消warning输出
+注意rpe是两帧之间的转换误差，而如果频率比较接近，肯定比较小
+evo_traj bag 2024-03-28-16-10-41.bag /leggedodom --save_as_tum
+evo_ape 一般用这个，不用rpe --align_origin对齐起点 评估轨迹的时候会自动对齐时间辍 可以用--align_origin来对齐原点
+--------------------------------------------------------------------------
+        gtsam::Pose3 curPose = lidarPose.compose(lidar2Imu);
+        gtsam::PriorFactor<gtsam::Pose3> pose_factor(X(key), curPose, degenerate ? correctionNoise2 : correctionNoise);
+        graphFactors.add(pose_factor);
+可以用这个添加腿足约束先验
+或者添加帧间约束先验而不是直接给个先验
+向后把地图建好一点回环精度会变好
+退化环境的效果还是和腿足里程计的精度相关，最好还是不用largewall 越宽越不好
+-----------------------------------------------------------------------------------------------
+rosbag record /points_raw /leggedodom /imu_raw /ground_truth
+---------------------------------------------------------------
+gicp 的实例化在hpp impl里面
+linearlize 实例化在 gicp_impl里面
+----------------------------------------------------------------------
+用livox里程计要注意预处理步骤，重要的是强度，但是预处理应该也有一点用
+在使用PCL的voxelgrid filter时，若点云过大，而设置的voxel比较小，可能会导致voxel的数量超过int32的上限，从而会出现警告：“Leaf size is too small for the input dataset”。
+------------------------------------------------------------------------------------------------------------------
+scan 2 map 直接法雷达里程计的关键帧有点问题
+单纯从距离不适合水平视角有限的livox，距离和角度都用上
+void dlo::OdomNode::updateKeyframes() 1203
+-------------------------------------------------------------------------
+d435i 仿真发布的点云frame——id是depth_optical_frame ，但是和 d435_depth_frame只是角度上的偏差  in RPY (degree) [-90.000, -0.000, -90.000]
+点云的frame_id 是laser_livox （tf应该是livox）
+run tf tf_echo livox d435_color_optical_frame
+At time 0.000
+- Translation: [0.004, 0.033, -0.094]
+- Rotation: in Quaternion [0.572, -0.572, 0.416, -0.416]
+            in RPY (radian) [-1.885, -0.000, -1.571]
+            in RPY (degree) [-108.000, -0.000, -90.000]
+At time 0.000
+- Translation: [0.004, 0.033, -0.094]
+- Rotation: in Quaternion [0.572, -0.572, 0.416, -0.416]
+            in RPY (radian) [-1.885, -0.000, -1.571]
+            in RPY (degree) [-108.000, -0.000, -90.000]
+xyzw
+-----------------------------------------------------------------------------
+
